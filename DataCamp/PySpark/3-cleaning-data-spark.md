@@ -162,3 +162,106 @@ voter_df = voter_df.cache()
 voter_df.is_cached
 voter_df.unpersist() # removed from cache
 ```
+
+
+### import performance
+
+number of objects:
+more objects better than larger ones
+can import via wildcard
+performance is better if sizes are similar
+
+A well-defined schema will drastically improve performance:
+avoids reading the data multiple times
+data validation
+
+Split object:
+use os utilities/ scripts:
+```shell
+split -l 10000 -d largefile chunk-
+```
+write out to Parquet
+
+
+Cluster Size:
+
+`spark.conf.get(config)`
+`spark.conf.set(config)`
+
+Driver:
+task assignment, result consolidation, shared data access
+Driver node should have double the memory ofthe worker
+
+Worker:
+runs actual tasks, has all code, data and resources for a given task
+more workers nodes is often better than larger workers
+
+
+Explain:
+`df.explain()`: show the execution plan
+
+limit use of `repartition`, use `coalesce` instead
+because it involves shuffling, shuffling refers to moving data around to various workers to complete a task
+
+`broadcast`:
+Provides a copy of an object to each worker
+Prevents undue / excess communication between nodes
+Can drastically speed up .join() operations
+
+
+### Pipeline
+
+```python
+# Import the data to a DataFrame
+departures_df = spark.read.csv('2015-departures.csv.gz', header=True)
+
+# Remove any duration of 0
+departures_df = departures_df.filter(departures_df[3]!=0)
+
+# Add an ID column
+departures_df = departures_df.withColumn('id', F.monotonically_increasing_id())
+
+# Write the file out to JSON format
+departures_df.write.json('output.json', mode='overwrite')
+```
+
+
+with csv
+```python
+# Import the file to a DataFrame and perform a row count
+annotations_df = spark.read.csv('annotations.csv.gz', sep='|')
+full_count = annotations_df.count()
+
+# Count the number of rows beginning with '#'
+comment_count = annotations_df.filter(col('_c0').startswith('#')).count()
+
+# Import the file to a new DataFrame, without commented rows
+no_comments_df = spark.read.csv('annotations.csv.gz', sep='|', comment='#')
+
+# Count the new DataFrame and verify the difference is as expected
+no_comments_count = no_comments_df.count()
+print("Full count: %d\nComment count: %d\nRemaining count: %d" % (no_comments_count, comment_count, no_comments_count))
+```
+
+
+Data Validation:
+Use join, complex rule, 
+
+left_anti
+
+```python
+# Determine the row counts for each DataFrame
+split_count = split_df.count()
+joined_count = joined_df.count()
+
+# Create a DataFrame containing the invalid rows
+invalid_df = split_df.join(F.broadcast(joined_df), 'folder', 'left_anti')
+
+# Validate the count of the new DataFrame is as expected
+invalid_count = invalid_df.count()
+print(" split_df:\t%d\n joined_df:\t%d\n invalid_df: \t%d" % (split_count, joined_count, invalid_count))
+
+# Determine the number of distinct folder rows removed
+invalid_folder_count = invalid_df.select('folder').distinct().count()
+print("%d distinct invalid folders found" % invalid_folder_count)
+```
